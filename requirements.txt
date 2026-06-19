@@ -3,8 +3,3 @@ yfinance
 plotly
 pandas
 numpy
-Plaintext
-pandas
-numpy
-scikit-learn
-streamlit
