@@ -1,142 +1,100 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
 
-# 페이지 설정
-st.set_page_config(
-    page_title="120년 서울 기후 변화 연구소",
-    layout="wide"
-)
+# 1. 페이지 기본 설정
+st.set_page_config(page_title="서울 역대급 날씨 대시보드", layout="wide", page_icon="☀️")
 
-st.title("🌍 120년 서울 기후 변화 연구소")
+st.title("📊 서울 역대급 날씨 대시보드 (1907~현재)")
+st.markdown("우리나라 기상 관측 이래 서울에서 가장 덥고 추웠던 날을 찾아보고, 조건에 맞는 날씨 데이터를 검색해 봅시다.")
 
-# 데이터 로드 함수 (들여쓰기 수정)
+# 2. 데이터 불러오기 및 전처리 함수
 @st.cache_data
 def load_data():
-    df = pd.read_csv("ta_20260619190504.csv", encoding="utf-8")
-    df["날짜"] = pd.to_datetime(df["날짜"])
-    df["연도"] = df["날짜"].dt.year
+    # 데이터셋 읽기
+    df = pd.read_csv("ta_20260619190504.csv")
+    
+    # 컬럼명 공백 제거 및 데이터 전처리
+    df.columns = df.columns.str.strip()
+    
+    # '날짜' 컬럼 내부의 탭 문자(\t) 제거 후 datetime 변환
+    df['날짜'] = df['날짜'].astype(str).str.replace(r'\s+', '', regex=True)
+    df['날짜'] = pd.to_datetime(df['날짜'], errors='coerce')
+    
+    # 기온 데이터 수치형 변환 및 결측치 제거
+    for col in ['평균기온(℃)', '최저기온(℃)', '최고기온(℃)']:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+    
+    df = df.dropna(subset=['날짜', '평균기온(℃)', '최저기온(℃)', '최고기온(℃)'])
     return df
 
-df = load_data()
+try:
+    data = load_data()
 
-# 연도별 평균 계산 (들여쓰기 수정)
-yearly = (
-    df.groupby("연도")
-    .agg(
-        평균기온=("평균기온(℃)", "mean"),
-        최고기온=("최고기온(℃)", "mean"),
-        최저기온=("최저기온(℃)", "mean")
-    )
-    .reset_index()
-)
+    # 3. 상단 주요 통계 (Metric) 표시
+    st.subheader("📌 역대 최고/최저 기온 기록")
+    
+    # 역대 최고기온 정보 추출
+    max_temp_row = data.loc[data['최고기온(℃)'].idxmax()]
+    max_temp = max_temp_row['최고기온(℃)']
+    max_temp_date = max_temp_row['날짜'].strftime('%Y년 %m월 %d일')
+    
+    # 역대 최저기온 정보 추출
+    min_temp_row = data.loc[data['최저기온(℃)'].idxmin()]
+    min_temp = min_temp_row['최저기온(℃)']
+    min_temp_date = min_temp_row['날짜'].strftime('%Y년 %m월 %d일')
+    
+    # 2개의 열로 나누어 Metric 배치
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric(label="🔥 역대 최고 기온", value=f"{max_temp} ℃", delta=f"기록일: {max_temp_date}", delta_color="inverse")
+    with col2:
+        st.metric(label="❄️ 역대 최저 기온", value=f"{min_temp} ℃", delta=f"기록일: {min_temp_date}")
 
-# =========================
-# 평균기온 변화
-# =========================
-st.header("📈 연도별 평균기온 변화")
-fig = px.line(
-    yearly,
-    x="연도",
-    y="평균기온",
-    title="1907~2026 평균기온 변화"
-)
-st.plotly_chart(fig, use_container_width=True)
+    st.markdown("---")
 
-# =========================
-# 기후변화 체감기
-# =========================
-st.header("🌡️ 기후변화 체감기")
-start_temp = yearly.iloc[0]["평균기온"]
-end_temp = yearly.iloc[-1]["평균기온"]
+    # 4. 조건 검색 테이블 (슬라이더 기능)
+    st.subheader("🔍 내 맘대로 조건 검색 필터")
+    st.write("슬라이더를 조절하여 극한의 기온을 기록한 날들을 필터링해 보세요.")
+    
+    col_input1, col_input2 = st.columns(2)
+    
+    with col_input1:
+        # 최고 기온 필터 슬라이더 (기본값 35도)
+        high_threshold = st.slider("이상 기온 탐색: 최고 기온이 몇 도 이상이었던 날을 찾을까요?", 
+                                   min_value=20.0, max_value=42.0, value=35.0, step=0.5)
+        
+    with col_input2:
+        # 최저 기온 필터 슬라이더 (기본값 영하 15도)
+        low_threshold = st.slider("한파 탐색: 최저 기온이 몇 도 이하였던 날을 찾을까요?", 
+                                  min_value=-30.0, max_value=10.0, value=-15.0, step=0.5)
 
-fig_indicator = go.Figure()
-fig_indicator.add_trace(
-    go.Indicator(
-        mode="number+delta",
-        value=end_temp,
-        number={"suffix": "℃"},
-        delta={
-            "reference": start_temp,
-            "relative": False
-        },
-        title={
-            "text": f"1907년 대비 {yearly.iloc[-1]['연도']}년"
-        }
-    )
-)
-st.plotly_chart(fig_indicator, use_container_width=True)
+    # 데이터 필터링 실행
+    filtered_data = data[
+        (data['최고기온(℃)'] >= high_threshold) & 
+        (data['최저기온(℃)'] <= low_threshold)
+    ]
+    
+    # 날짜 정렬 후 가독성 있게 포맷 변경한 복사본 생성
+    display_df = filtered_data.copy()
+    display_df['날짜'] = display_df['날짜'].dt.strftime('%Y-%m-%d')
+    display_df = display_df.sort_values(by='날짜', ascending=False)
 
-delta = end_temp - start_temp
-st.success(
-    f"{yearly.iloc[0]['연도']}년 → {yearly.iloc[-1]['연도']}년 : "
-    f"{delta:.2f}℃ 상승"
-)
+    # 결과 출력
+    st.write(f"🔎 검색 결과: 총 **{len(display_df)}건**이 검색되었습니다.")
+    
+    if len(display_df) > 0:
+        st.dataframe(display_df, use_container_width=True)
+        
+        # 5. CSV 다운로드 버튼
+        csv_buffer = display_df.to_csv(index=False).encode('utf-8-sig') # 엑셀 깨짐 방지 utf-8-sig
+        st.download_button(
+            label="📥 필터링된 결과 CSV 다운로드",
+            data=csv_buffer,
+            file_name=f"seoul_weather_filtered.csv",
+            mime="text/csv"
+        )
+    else:
+        st.info("조건에 맞는 날짜가 없습니다. 슬라이더 범위를 조절해 보세요!")
 
-# =========================
-# 미래 기온 예측
-# =========================
-st.header("🔮 미래 기온 예측")
-x = yearly["연도"]
-y = yearly["평균기온"]
-coef = np.polyfit(x, y, 1)
-
-predict_years = [2030, 2050, 2100]
-predicted = []
-
-# for문 내부 들여쓰기 수정
-for year in predict_years:
-    temp = coef[0] * year + coef[1]
-    predicted.append(temp)
-
-pred_df = pd.DataFrame({
-    "연도": predict_years,
-    "예측 평균기온(℃)": np.round(predicted, 2)
-})
-st.dataframe(pred_df)
-
-future_x = np.arange(1907, 2101)
-future_y = coef[0] * future_x + coef[1]
-
-fig2 = go.Figure()
-fig2.add_trace(
-    go.Scatter(
-        x=yearly["연도"],
-        y=yearly["평균기온"],
-        mode="lines",
-        name="실제 기온"
-    )
-)
-fig2.add_trace(
-    go.Scatter(
-        x=future_x,
-        y=future_y,
-        mode="lines",
-        name="예측"
-    )
-)
-fig2.update_layout(
-    title="2100년까지 평균기온 예측"
-)
-st.plotly_chart(fig2, use_container_width=True)
-
-# =========================
-# 연도별 애니메이션
-# =========================
-st.header("🎬 연도별 기온 변화 애니메이션")
-animation_df = yearly.copy()
-fig3 = px.bar(
-    animation_df,
-    x="평균기온",
-    y="연도",
-    orientation="h",
-    animation_frame="연도",
-    range_x=[
-        animation_df["평균기온"].min() - 1,
-        animation_df["평균기온"].max() + 1
-    ],
-    title="연도별 평균기온 변화"
-)
-st.plotly_chart(fig3, use_container_width=True)
+except FileNotFoundError:
+    st.error("데이터 파일('ta_20260619190504.csv')을 찾을 수 없습니다. 파일명을 확인하고 저장소에 함께 업로드해 주세요.")
