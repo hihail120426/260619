@@ -1,4 +1,3 @@
-```python
 import streamlit as st
 import random
 
@@ -195,4 +194,3 @@ if st.button("🔮 진로 추천 받기 ✨"):
 
 st.write("---")
 st.caption("🐰 MBTI 진로 탐험소 🌸")
-```
